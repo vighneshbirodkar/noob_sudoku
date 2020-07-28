@@ -199,7 +199,7 @@ impl Sudoku {
         } else {
             match sudoku.get_first_empty() {
                 Some((r, c)) => {
-                    let choices = self.get_choices(r, c);
+                    let choices = sudoku.get_choices(r, c);
 
                     for num in choices {
                         sudoku.assign_inplace(r, c, num);
