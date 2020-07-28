@@ -2,10 +2,12 @@ use std::env;
 use std::fmt;
 use std::fs;
 use std::io::{Error, ErrorKind};
+use std::time::Instant;
 
 const SUDOKU_SIZE: usize = 9;
 const CELL_SIZE: usize = 3;
 
+#[derive(Clone)]
 struct Sudoku {
     grid: [[u8; SUDOKU_SIZE]; SUDOKU_SIZE],
     num_empty: usize,
@@ -51,18 +53,18 @@ impl Choices {
     }
 }
 
-impl Iterator for Choices {
+impl IntoIterator for Choices {
     type Item = u8;
-    fn next(&mut self) -> Option<u8> {
-        if self.len() == 0 {
-            return None;
-        }
+    type IntoIter = ::std::vec::IntoIter<u8>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let mut vec = Vec::<Self::Item>::new();
         for i in 1..=SUDOKU_SIZE {
             if self.choices[i] {
-                return Some(i as u8);
+                vec.push(i as u8);
             }
         }
-        return None;
+        return vec.into_iter();
     }
 }
 
@@ -135,16 +137,27 @@ impl Sudoku {
     }
 
     fn assign_inplace(&mut self, row: usize, col: usize, num: u8) {
-        if self.grid[row][col] != 0 {
-            panic!("Assign at {}, {} with {}", row, col, self.grid[row][col]);
-        }
-
         self.grid[row][col] = num;
-        self.num_empty -= 1;
+
+        if self.grid[row][col] == 0 {
+            self.num_empty -= 1;
+        }
     }
 
     fn is_full(&self) -> bool {
         return self.num_empty == 0;
+    }
+
+    fn get_first_empty(&self) -> Option<(usize, usize)> {
+        for r in 0..SUDOKU_SIZE {
+            for c in 0..SUDOKU_SIZE {
+                if self.grid[r][c] == 0 {
+                    return Some((r, c));
+                }
+            }
+        }
+
+        return None;
     }
 
     fn try_first_obvious_inplace(&mut self) -> bool {
@@ -154,14 +167,11 @@ impl Sudoku {
                     continue;
                 }
 
-                let mut choices = self.get_choices(r, c);
+                let choices = self.get_choices(r, c);
                 if choices.len() == 1 {
-                    match choices.next() {
-                        Some(num) => {
-                            self.assign_inplace(r, c, num);
-                            return true;
-                        }
-                        _ => {}
+                    for num in choices {
+                        self.assign_inplace(r, c, num);
+                        return true;
                     }
                 }
             }
@@ -178,6 +188,38 @@ impl Sudoku {
             }
         }
         return false;
+    }
+
+    fn solve(&self) -> Option<Sudoku> {
+        let mut sudoku = self.clone();
+        let solved = sudoku.try_all_obvious_inplace();
+
+        if solved {
+            return Some(sudoku);
+        } else {
+            match sudoku.get_first_empty() {
+                Some((r, c)) => {
+                    let choices = self.get_choices(r, c);
+
+                    for num in choices {
+                        sudoku.assign_inplace(r, c, num);
+                        match sudoku.solve() {
+                            Some(solved_sudoku) => {
+                                return Some(solved_sudoku);
+                            }
+                            None => {
+                                continue;
+                            }
+                        }
+                    }
+
+                    return None;
+                }
+                None => {
+                    return Some(sudoku);
+                }
+            }
+        }
     }
 }
 
@@ -200,7 +242,7 @@ fn main() -> Result<(), String> {
     let args_collection: Vec<String> = env::args().collect();
     let filename = &args_collection[1];
     let result = Sudoku::from_file(filename);
-    let mut sudoku: Sudoku;
+    let sudoku: Sudoku;
 
     match result {
         Err(why) => {
@@ -211,9 +253,22 @@ fn main() -> Result<(), String> {
 
     print!("Sudoku read:");
     println!("{}", sudoku);
-    sudoku.try_all_obvious_inplace();
-    print!("Sudoku after:");
-    println!("{}", sudoku);
 
+    let start = Instant::now();
+    let solution = sudoku.solve();
+    let elapsed = start.elapsed();
+
+    match solution {
+        Some(sudoku) => {
+            print!("Sudoku solved:");
+            println!("{}", sudoku);
+        }
+
+        None => {
+            println!("Could not solve.");
+        }
+    }
+
+    println!("Time taken = {:?}", elapsed);
     return Ok(());
 }
